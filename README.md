@@ -195,8 +195,15 @@ The V1 Basescan/Etherscan endpoints were retired. Update your `.env` to use
 `ETHERSCAN_API_KEY` (not `BASESCAN_API_KEY`) and grab the key from
 [etherscan.io/myapikey](https://etherscan.io/myapikey). The `foundry.toml`
 in this repo already points at the V2 unified endpoint
-(`https://api.etherscan.io/v2/api`) with the right `chainid` for Base
-(8453) and Base Sepolia (84532). One key works for both.
+(`https://api.etherscan.io/v2/api`) with `chainid` baked into the URL
+itself. One key works for both Base and Base Sepolia.
+
+**`--verify` fails with "Missing chainid parameter (required for v2 api)"**
+Your `foundry.toml` etherscan URL is missing the `?chainid=<id>` query
+parameter. With V2, chainid MUST be in the URL — forge 1.7.x does not
+auto-append it from the `chain =` field. Use the URL format
+`https://api.etherscan.io/v2/api?chainid=84532` (or `?chainid=8453` for
+mainnet). The `foundry.toml` in this repo already has the correct format.
 
 **Deploy succeeds but verification hangs**
 Basescan's free tier is rate-limited. Wait a few minutes and re-run with
