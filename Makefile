@@ -37,6 +37,22 @@ endif
         deploy-sepolia deploy-mainnet verify-sepolia verify-mainnet \
         reverify-sepolia reverify-mainnet verify migrate-env
 
+# ------------------------------------------------------------
+#  Rate-limit config (avoid spam flagging on block explorers)
+# ------------------------------------------------------------
+#  The chain and Etherscan treat ten back-to-back transactions from
+#  the same address as suspicious. Spacing them out keeps the
+#  deployment below the spam threshold. Override on the command line
+#  to disable or tune:
+#
+#    make deploy-sepolia DEPLOY_DELAY_MIN=0 DEPLOY_DELAY_MAX=0
+#    make reverify-sepolia VERIFY_DELAY_MIN=30 VERIFY_DELAY_MAX=60
+# ------------------------------------------------------------
+DEPLOY_DELAY_MIN ?= 15
+DEPLOY_DELAY_MAX ?= 30
+VERIFY_DELAY_MIN ?= 15
+VERIFY_DELAY_MAX ?= 30
+
 help: ## show this help
 	@awk 'BEGIN {FS = ":.*##"; printf "\nUsage:\n  make \033[36m<target>\033[0m\n\nTargets:\n"} \
 	/^[a-zA-Z_-]+:.*?##/ { printf "  \033[36m%-18s\033[0m %s\n", $$1, $$2 }' $(MAKEFILE_LIST)
@@ -91,19 +107,61 @@ clean: ## remove out/, cache/, broadcast/
 #  variable is expanded at execution time from the exported env
 #  (i.e. from `.env`). Never inline the raw key into the Makefile.
 # ------------------------------------------------------------
-deploy-sepolia: ## deploy 10 instances to Base Sepolia + auto-verify
-	forge script script/Deploy.s.sol:DeployScript \
-		--rpc-url base_sepolia \
-		--private-key $${PRIVATE_KEY} \
-		--broadcast \
-		--verify
+deploy-sepolia: ## deploy 10 instances to Base Sepolia with 15-30s sleep between (rate-limited)
+	@CHAIN=84532; \
+	SCRIPT_DIR=broadcast/DeploySingle.s.sol/$$CHAIN; \
+	rm -f "$$SCRIPT_DIR" deployments-$$CHAIN.txt; \
+	mkdir -p "$$SCRIPT_DIR"; \
+	i=0; \
+	while [ $$i -lt 10 ]; do \
+		i=$$((i + 1)); \
+		echo ""; \
+		echo "=== Deploy $$i/10 -> Base Sepolia (chain $$CHAIN) ==="; \
+		forge script script/DeploySingle.s.sol:DeploySingle \
+			--rpc-url base_sepolia \
+			--broadcast --verify || exit $$?; \
+		if [ $$i -lt 10 ]; then \
+			DELAY=$$(( (RANDOM % (DEPLOY_DELAY_MAX - DEPLOY_DELAY_MIN + 1)) + DEPLOY_DELAY_MIN )); \
+			printf "[delay] sleeping %d sec before next deploy (set DEPLOY_DELAY_MIN/MAX=0 to skip)...\n" $$DELAY; \
+			sleep $$DELAY; \
+		fi; \
+	done; \
+	echo ""; \
+	echo "Aggregating addresses from $$SCRIPT_DIR/ ..."; \
+	python3 -c "import json,glob; \
+out=[]; \
+[out.append(t['contractAddress']) for f in sorted(glob.glob('$$SCRIPT_DIR/run-*.json')) if 'latest' not in f for t in json.load(open(f)).get('transactions',[]) if t.get('contractAddress')]; \
+open('deployments-$$CHAIN.txt','w').write('\n'.join(out)+'\n')"; \
+	echo "All 10 deployed. Addresses saved to: deployments-$$CHAIN.txt"; \
+	cat deployments-$$CHAIN.txt
 
-deploy-mainnet: ## deploy 10 instances to Base mainnet + auto-verify
-	forge script script/Deploy.s.sol:DeployScript \
-		--rpc-url base \
-		--private-key $${PRIVATE_KEY} \
-		--broadcast \
-		--verify
+deploy-mainnet: ## deploy 10 instances to Base mainnet with 15-30s sleep between (rate-limited)
+	@CHAIN=8453; \
+	SCRIPT_DIR=broadcast/DeploySingle.s.sol/$$CHAIN; \
+	rm -f "$$SCRIPT_DIR" deployments-$$CHAIN.txt; \
+	mkdir -p "$$SCRIPT_DIR"; \
+	i=0; \
+	while [ $$i -lt 10 ]; do \
+		i=$$((i + 1)); \
+		echo ""; \
+		echo "=== Deploy $$i/10 -> Base mainnet (chain $$CHAIN) ==="; \
+		forge script script/DeploySingle.s.sol:DeploySingle \
+			--rpc-url base \
+			--broadcast --verify || exit $$?; \
+		if [ $$i -lt 10 ]; then \
+			DELAY=$$(( (RANDOM % (DEPLOY_DELAY_MAX - DEPLOY_DELAY_MIN + 1)) + DEPLOY_DELAY_MIN )); \
+			printf "[delay] sleeping %d sec before next deploy (set DEPLOY_DELAY_MIN/MAX=0 to skip)...\n" $$DELAY; \
+			sleep $$DELAY; \
+		fi; \
+	done; \
+	echo ""; \
+	echo "Aggregating addresses from $$SCRIPT_DIR/ ..."; \
+	python3 -c "import json,glob; \
+out=[]; \
+[out.append(t['contractAddress']) for f in sorted(glob.glob('$$SCRIPT_DIR/run-*.json')) if 'latest' not in f for t in json.load(open(f)).get('transactions',[]) if t.get('contractAddress')]; \
+open('deployments-$$CHAIN.txt','w').write('\n'.join(out)+'\n')"; \
+	echo "All 10 deployed. Addresses saved to: deployments-$$CHAIN.txt"; \
+	cat deployments-$$CHAIN.txt
 
 # ------------------------------------------------------------
 #  Re-verify an already-deployed contract
@@ -154,37 +212,39 @@ migrate-env: ## rename BASESCAN_API_KEY to ETHERSCAN_API_KEY in .env (preserves 
 # ------------------------------------------------------------
 #  verify — simplest possible verification
 # ------------------------------------------------------------
-#  No args, no flags. Finds the most recent broadcast file, figures
-#  out the chain from the directory name (84532 or 8453), and
-#  verifies every deployed contract. Use this if you don't want
-#  to think about which network.
+#  No args, no flags. Auto-detects the chain from the broadcast dir,
+#  aggregates addresses from all `run-*.json` files (or from the
+#  `deployments-<chain>.txt` manifest if present), and verifies each
+#  contract with 15-30s sleep between calls. Rate-limited to avoid
+#  hitting the Etherscan free tier rate limit.
 #
 #  Override the broadcast file with BROADCAST=path/to/file.json
 # ------------------------------------------------------------
-verify: ## auto-detect: verify all contracts from the most recent broadcast
-	@if [ ! -d broadcast/Deploy.s.sol ]; then \
+verify: ## auto-detect: verify all contracts from the most recent broadcast (rate-limited)
+	@CHAIN_DIR=$$(ls -1d broadcast/DeploySingle.s.sol/*/  broadcast/Deploy.s.sol/*/ 2>/dev/null | head -1); \
+	if [ -z "$$CHAIN_DIR" ]; then \
 		echo "No broadcast/ directory. Run 'make deploy-sepolia' (or mainnet) first." >&2; \
 		exit 1; \
 	fi; \
-	if [ -n "$(BROADCAST)" ]; then \
-		LATEST=$(BROADCAST); \
+	CHAIN=$$(basename "$$CHAIN_DIR"); \
+	MANIFEST=deployments-$$CHAIN.txt; \
+	if [ -f "$$MANIFEST" ]; then \
+		ADDRS=$$(grep -E '^0x' "$$MANIFEST"); \
+		SRC="$$MANIFEST"; \
 	else \
-		LATEST=$$(ls -1t broadcast/Deploy.s.sol/*/run-*.json 2>/dev/null | head -1); \
-		if [ -z "$$LATEST" ]; then \
-			echo "No broadcast file found. Run a deploy first." >&2; \
-			exit 1; \
-		fi; \
+		ADDRS=$$(python3 -c "import json,glob; \
+[print(t['contractAddress']) for f in sorted(glob.glob('$$CHAIN_DIR/run-*.json')) if 'latest' not in f for t in json.load(open(f)).get('transactions',[]) if t.get('contractAddress')]"); \
+		SRC="$$CHAIN_DIR (all run-*.json files)"; \
 	fi; \
-	CHAIN=$$(dirname "$$LATEST" | xargs basename); \
-	echo "File:   $$LATEST"; \
-	echo "Chain:  $$CHAIN"; \
-	echo "---"; \
-	ADDRS=$$(python3 -c "import json; d=json.load(open('$$LATEST')); [print(t.get('contractAddress','')) for t in d.get('transactions',[]) if t.get('contractAddress')]"); \
 	if [ -z "$$ADDRS" ]; then \
-		echo "No contracts in $$LATEST" >&2; \
+		echo "No contracts found in $$SRC" >&2; \
 		exit 1; \
 	fi; \
 	TOTAL=$$(echo "$$ADDRS" | wc -l); \
+	echo "Source: $$SRC"; \
+	echo "Chain:  $$CHAIN"; \
+	echo "Found:  $$TOTAL contracts"; \
+	echo "---"; \
 	OK=0; FAIL=0; \
 	for addr in $$ADDRS; do \
 		OK=$$((OK + 1)); \
@@ -197,80 +257,125 @@ verify: ## auto-detect: verify all contracts from the most recent broadcast
 			echo "FAIL"; \
 			FAIL=$$((FAIL + 1)); \
 		fi; \
+		if [ $$OK -lt $$TOTAL ] && [ $$FAIL -lt 3 ]; then \
+			DELAY=$$(( (RANDOM % (VERIFY_DELAY_MAX - VERIFY_DELAY_MIN + 1)) + VERIFY_DELAY_MIN )); \
+			printf "[delay] sleeping %d sec (set VERIFY_DELAY_MIN/MAX=0 to skip)...\n" $$DELAY; \
+			sleep $$DELAY; \
+		fi; \
 	done; \
 	echo "---"; \
 	echo "Done. Verified $$TOTAL contracts, $$FAIL failed."; \
 	exit $$FAIL
 
 # ------------------------------------------------------------
-#  Re-verify all contracts in a broadcast file
+#  Re-verify all contracts in a broadcast file or manifest
 # ------------------------------------------------------------
 #  After switching the verifier config (e.g. V1 -> V2), use this to
-#  submit verification for every contract in a previous run without
+#  submit verification for every contract from a previous run without
 #  redeploying. Reads the `contractAddress` from each tx in the
-#  broadcast JSON and calls `forge verify-contract` for each.
+#  broadcast JSON (or from the manifest) and calls
+#  `forge verify-contract` for each.
 #
 #  Usage:
 #    make reverify-sepolia
-#      # default: broadcast/Deploy.s.sol/84532/run-latest.json
 #    make reverify-sepolia BROADCAST=broadcast/Deploy.s.sol/84532/run-1234.json
 # ------------------------------------------------------------
-reverify-sepolia: ## re-verify all contracts in a Base Sepolia broadcast file
-	@BROADCAST_FILE=$${BROADCAST:-broadcast/Deploy.s.sol/84532/run-latest.json}; \
-	if [ ! -f "$$BROADCAST_FILE" ]; then \
-		echo "Broadcast file not found: $$BROADCAST_FILE" >&2; \
-		echo "Usage: make reverify-sepolia [BROADCAST=path/to/run-latest.json]" >&2; \
-		exit 1; \
+reverify-sepolia: ## re-verify all contracts on Base Sepolia (rate-limited)
+	@CHAIN=84532; \
+	MANIFEST=deployments-$$CHAIN.txt; \
+	if [ -n "$(BROADCAST)" ]; then \
+		BROADCAST_FILE=$(BROADCAST); \
+		if [ ! -f "$$BROADCAST_FILE" ]; then \
+			echo "Broadcast file not found: $$BROADCAST_FILE" >&2; \
+			exit 1; \
+		fi; \
+		ADDRS=$$(python3 -c "import json; d=json.load(open('$$BROADCAST_FILE')); [print(t.get('contractAddress','')) for t in d.get('transactions',[]) if t.get('contractAddress')]"); \
+		SRC="$$BROADCAST_FILE"; \
+	elif [ -f "$$MANIFEST" ]; then \
+		ADDRS=$$(grep -E '^0x' "$$MANIFEST"); \
+		SRC="$$MANIFEST"; \
+	else \
+		ADDRS=$$(python3 -c "import json,glob; \
+[print(t['contractAddress']) for f in sorted(glob.glob('broadcast/*/$$CHAIN/run-*.json')) if 'latest' not in f for t in json.load(open(f)).get('transactions',[]) if t.get('contractAddress')]"); \
+		SRC="broadcast/*/$$CHAIN (all run-*.json files)"; \
 	fi; \
-	echo "Reading addresses from $$BROADCAST_FILE ..."; \
-	ADDRS=$$(python3 -c "import json,sys; d=json.load(open('$$BROADCAST_FILE')); [print(t.get('contractAddress','')) for t in d.get('transactions',[]) if t.get('contractAddress')]"); \
 	if [ -z "$$ADDRS" ]; then \
-		echo "No contractAddress entries found in $$BROADCAST_FILE" >&2; \
+		echo "No contracts found in $$SRC" >&2; \
 		exit 1; \
 	fi; \
+	TOTAL=$$(echo "$$ADDRS" | wc -l); \
+	echo "Source: $$SRC"; \
+	echo "Chain:  $$CHAIN (Base Sepolia)"; \
+	echo "Found:  $$TOTAL contracts"; \
+	echo "---"; \
 	COUNT=0; FAILED=0; \
 	for addr in $$ADDRS; do \
 		COUNT=$$((COUNT + 1)); \
-		printf "[%2d/%2d] verifying %s ... " $$COUNT $$(echo "$$ADDRS" | wc -l) $$addr; \
+		printf "[%2d/%2d] verifying %s ... " $$COUNT $$TOTAL $$addr; \
 		if forge verify-contract $$addr src/Minimal.sol:Minimal \
-			--chain-id 84532 \
+			--chain-id $$CHAIN \
 			--etherscan-api-key $${ETHERSCAN_API_KEY} >/dev/null 2>&1; then \
 			echo "OK"; \
 		else \
 			echo "FAILED"; \
 			FAILED=$$((FAILED + 1)); \
 		fi; \
+		if [ $$COUNT -lt $$TOTAL ] && [ $$FAILED -lt 3 ]; then \
+			DELAY=$$(( (RANDOM % (VERIFY_DELAY_MAX - VERIFY_DELAY_MIN + 1)) + VERIFY_DELAY_MIN )); \
+			printf "[delay] sleeping %d sec (set VERIFY_DELAY_MIN/MAX=0 to skip)...\n" $$DELAY; \
+			sleep $$DELAY; \
+		fi; \
 	done; \
-	echo ""; \
-	echo "Verified $$COUNT contracts, $$FAILED failed."; \
+	echo "---"; \
+	echo "Verified $$TOTAL contracts, $$FAILED failed."; \
 	exit $$FAILED
 
-reverify-mainnet: ## re-verify all contracts in a Base mainnet broadcast file
-	@BROADCAST_FILE=$${BROADCAST:-broadcast/Deploy.s.sol/8453/run-latest.json}; \
-	if [ ! -f "$$BROADCAST_FILE" ]; then \
-		echo "Broadcast file not found: $$BROADCAST_FILE" >&2; \
-		echo "Usage: make reverify-mainnet [BROADCAST=path/to/run-latest.json]" >&2; \
-		exit 1; \
+reverify-mainnet: ## re-verify all contracts on Base mainnet (rate-limited)
+	@CHAIN=8453; \
+	MANIFEST=deployments-$$CHAIN.txt; \
+	if [ -n "$(BROADCAST)" ]; then \
+		BROADCAST_FILE=$(BROADCAST); \
+		if [ ! -f "$$BROADCAST_FILE" ]; then \
+			echo "Broadcast file not found: $$BROADCAST_FILE" >&2; \
+			exit 1; \
+		fi; \
+		ADDRS=$$(python3 -c "import json; d=json.load(open('$$BROADCAST_FILE')); [print(t.get('contractAddress','')) for t in d.get('transactions',[]) if t.get('contractAddress')]"); \
+		SRC="$$BROADCAST_FILE"; \
+	elif [ -f "$$MANIFEST" ]; then \
+		ADDRS=$$(grep -E '^0x' "$$MANIFEST"); \
+		SRC="$$MANIFEST"; \
+	else \
+		ADDRS=$$(python3 -c "import json,glob; \
+[print(t['contractAddress']) for f in sorted(glob.glob('broadcast/*/$$CHAIN/run-*.json')) if 'latest' not in f for t in json.load(open(f)).get('transactions',[]) if t.get('contractAddress')]"); \
+		SRC="broadcast/*/$$CHAIN (all run-*.json files)"; \
 	fi; \
-	echo "Reading addresses from $$BROADCAST_FILE ..."; \
-	ADDRS=$$(python3 -c "import json,sys; d=json.load(open('$$BROADCAST_FILE')); [print(t.get('contractAddress','')) for t in d.get('transactions',[]) if t.get('contractAddress')]"); \
 	if [ -z "$$ADDRS" ]; then \
-		echo "No contractAddress entries found in $$BROADCAST_FILE" >&2; \
+		echo "No contracts found in $$SRC" >&2; \
 		exit 1; \
 	fi; \
+	TOTAL=$$(echo "$$ADDRS" | wc -l); \
+	echo "Source: $$SRC"; \
+	echo "Chain:  $$CHAIN (Base mainnet)"; \
+	echo "Found:  $$TOTAL contracts"; \
+	echo "---"; \
 	COUNT=0; FAILED=0; \
 	for addr in $$ADDRS; do \
 		COUNT=$$((COUNT + 1)); \
-		printf "[%2d/%2d] verifying %s ... " $$COUNT $$(echo "$$ADDRS" | wc -l) $$addr; \
+		printf "[%2d/%2d] verifying %s ... " $$COUNT $$TOTAL $$addr; \
 		if forge verify-contract $$addr src/Minimal.sol:Minimal \
-			--chain-id 8453 \
+			--chain-id $$CHAIN \
 			--etherscan-api-key $${ETHERSCAN_API_KEY} >/dev/null 2>&1; then \
 			echo "OK"; \
 		else \
 			echo "FAILED"; \
 			FAILED=$$((FAILED + 1)); \
 		fi; \
+		if [ $$COUNT -lt $$TOTAL ] && [ $$FAILED -lt 3 ]; then \
+			DELAY=$$(( (RANDOM % (VERIFY_DELAY_MAX - VERIFY_DELAY_MIN + 1)) + VERIFY_DELAY_MIN )); \
+			printf "[delay] sleeping %d sec (set VERIFY_DELAY_MIN/MAX=0 to skip)...\n" $$DELAY; \
+			sleep $$DELAY; \
+		fi; \
 	done; \
-	echo ""; \
-	echo "Verified $$COUNT contracts, $$FAILED failed."; \
+	echo "---"; \
+	echo "Verified $$TOTAL contracts, $$FAILED failed."; \
 	exit $$FAILED

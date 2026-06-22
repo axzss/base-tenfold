@@ -69,6 +69,11 @@ to rename the variable. The key value is preserved.
 
 ## Deployment
 
+Deploys are rate-limited to avoid being flagged as spam by the chain or
+block explorer. Each of the ten contracts deploys as its own broadcast
+with a random 15-30 second sleep between iterations. The full run takes
+roughly 3-5 minutes.
+
 ### Base Sepolia (testnet)
 
 ```bash
@@ -77,8 +82,8 @@ make deploy-sepolia
 
 Deploys ten contracts and submits verification requests to Etherscan.
 Verification typically completes in under a minute but may queue
-longer during high load. Output ends with `All (10) contracts were
-verified!` on success.
+longer during high load. Output ends with `All 10 contracts deployed.
+Addresses saved to: deployments-84532.txt` on success.
 
 ### Base mainnet
 
@@ -91,6 +96,19 @@ chains. For mainnet verification, either upgrade your Etherscan API
 plan or pass `--verifier sourcify` to use the open-source Sourcify
 verifier.
 
+### Rate-limit configuration
+
+Defaults: 15-30 seconds between deploys, 15-30 seconds between
+verifications. Override per command:
+
+```bash
+make deploy-sepolia DEPLOY_DELAY_MIN=0   DEPLOY_DELAY_MAX=0
+make reverify-sepolia VERIFY_DELAY_MIN=30 VERIFY_DELAY_MAX=60
+```
+
+Setting both to 0 disables the sleep entirely. Setting the maximum below
+the minimum is a no-op (the calc clamps to a 1-second minimum).
+
 ## Verification
 
 The deployment script auto-verifies via the `forge script --verify`
@@ -100,12 +118,15 @@ flag. To re-verify contracts from a previous run without redeploying:
 make verify
 ```
 
-Finds the most recent broadcast file, detects the chain, and calls
+Finds the broadcast files, auto-detects the chain, and calls
 `forge verify-contract` for each entry. For a single address:
 
 ```bash
 make verify-sepolia ADDR=0xYourContractAddress
 ```
+
+The re-verify loop stops early after 3 consecutive failures to avoid
+hammering Etherscan when the rate limit hits.
 
 ## Local development
 
@@ -150,14 +171,15 @@ Run `make help` for the complete list.
 
 ```
 .
-├── foundry.toml        # Optimizer + Etherscan V2 verifier config
-├── remappings.txt      # forge-std path for IDEs
-├── Makefile            # Common dev tasks
-├── .env.example        # Environment template
-├── LICENSE             # MIT
-├── src/Minimal.sol     # Single-slot gas-optimized contract
-├── script/Deploy.s.sol # 10-deploy script in a single broadcast
-└── lib/forge-std/      # Submodule, not tracked
+├── foundry.toml             # Optimizer + Etherscan V2 verifier config
+├── remappings.txt           # forge-std path for IDEs
+├── Makefile                 # Common dev tasks (rate-limited deploy/verify)
+├── .env.example             # Environment template
+├── LICENSE                  # MIT
+├── src/Minimal.sol          # Single-slot gas-optimized contract
+├── script/Deploy.s.sol      # 10-in-1 single-broadcast (original mission)
+├── script/DeploySingle.s.sol # 1-per-iteration (used by rate-limited Make targets)
+└── lib/forge-std/           # Submodule, not tracked
 ```
 
 ## Security
