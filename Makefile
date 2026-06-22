@@ -15,7 +15,8 @@ export
 # FOUNDRY_VERSION = nightly
 
 .PHONY: help install build build-optimized test test-gas fmt fmt-check snapshot clean \
-        deploy-sepolia deploy-mainnet verify-sepolia verify-mainnet
+        deploy-sepolia deploy-mainnet verify-sepolia verify-mainnet \
+        reverify-sepolia reverify-mainnet
 
 help: ## show this help
 	@awk 'BEGIN {FS = ":.*##"; printf "\nUsage:\n  make \033[36m<target>\033[0m\n\nTargets:\n"} \
@@ -99,7 +100,7 @@ verify-sepolia: ## verify an existing deployment on Base Sepolia
 	fi
 	forge verify-contract $(ADDR) src/Minimal.sol:Minimal \
 		--chain-id 84532 \
-		--etherscan-api-key $${BASESCAN_API_KEY}
+		--etherscan-api-key $${ETHERSCAN_API_KEY}
 
 verify-mainnet: ## verify an existing deployment on Base mainnet
 	@if [ -z "$(ADDR)" ]; then \
@@ -108,4 +109,77 @@ verify-mainnet: ## verify an existing deployment on Base mainnet
 	fi
 	forge verify-contract $(ADDR) src/Minimal.sol:Minimal \
 		--chain-id 8453 \
-		--etherscan-api-key $${BASESCAN_API_KEY}
+		--etherscan-api-key $${ETHERSCAN_API_KEY}
+
+# ------------------------------------------------------------
+#  Re-verify all contracts in a broadcast file
+# ------------------------------------------------------------
+#  After switching the verifier config (e.g. V1 -> V2), use this to
+#  submit verification for every contract in a previous run without
+#  redeploying. Reads the `contractAddress` from each tx in the
+#  broadcast JSON and calls `forge verify-contract` for each.
+#
+#  Usage:
+#    make reverify-sepolia
+#      # default: broadcast/Deploy.s.sol/84532/run-latest.json
+#    make reverify-sepolia BROADCAST=broadcast/Deploy.s.sol/84532/run-1234.json
+# ------------------------------------------------------------
+reverify-sepolia: ## re-verify all contracts in a Base Sepolia broadcast file
+	@BROADCAST_FILE=$${BROADCAST:-broadcast/Deploy.s.sol/84532/run-latest.json}; \
+	if [ ! -f "$$BROADCAST_FILE" ]; then \
+		echo "Broadcast file not found: $$BROADCAST_FILE" >&2; \
+		echo "Usage: make reverify-sepolia [BROADCAST=path/to/run-latest.json]" >&2; \
+		exit 1; \
+	fi; \
+	echo "Reading addresses from $$BROADCAST_FILE ..."; \
+	ADDRS=$$(python3 -c "import json,sys; d=json.load(open('$$BROADCAST_FILE')); [print(t.get('contractAddress','')) for t in d.get('transactions',[]) if t.get('contractAddress')]"); \
+	if [ -z "$$ADDRS" ]; then \
+		echo "No contractAddress entries found in $$BROADCAST_FILE" >&2; \
+		exit 1; \
+	fi; \
+	COUNT=0; FAILED=0; \
+	for addr in $$ADDRS; do \
+		COUNT=$$((COUNT + 1)); \
+		printf "[%2d/%2d] verifying %s ... " $$COUNT $$(echo "$$ADDRS" | wc -l) $$addr; \
+		if forge verify-contract $$addr src/Minimal.sol:Minimal \
+			--chain-id 84532 \
+			--etherscan-api-key $${ETHERSCAN_API_KEY} >/dev/null 2>&1; then \
+			echo "OK"; \
+		else \
+			echo "FAILED"; \
+			FAILED=$$((FAILED + 1)); \
+		fi; \
+	done; \
+	echo ""; \
+	echo "Verified $$COUNT contracts, $$FAILED failed."; \
+	exit $$FAILED
+
+reverify-mainnet: ## re-verify all contracts in a Base mainnet broadcast file
+	@BROADCAST_FILE=$${BROADCAST:-broadcast/Deploy.s.sol/8453/run-latest.json}; \
+	if [ ! -f "$$BROADCAST_FILE" ]; then \
+		echo "Broadcast file not found: $$BROADCAST_FILE" >&2; \
+		echo "Usage: make reverify-mainnet [BROADCAST=path/to/run-latest.json]" >&2; \
+		exit 1; \
+	fi; \
+	echo "Reading addresses from $$BROADCAST_FILE ..."; \
+	ADDRS=$$(python3 -c "import json,sys; d=json.load(open('$$BROADCAST_FILE')); [print(t.get('contractAddress','')) for t in d.get('transactions',[]) if t.get('contractAddress')]"); \
+	if [ -z "$$ADDRS" ]; then \
+		echo "No contractAddress entries found in $$BROADCAST_FILE" >&2; \
+		exit 1; \
+	fi; \
+	COUNT=0; FAILED=0; \
+	for addr in $$ADDRS; do \
+		COUNT=$$((COUNT + 1)); \
+		printf "[%2d/%2d] verifying %s ... " $$COUNT $$(echo "$$ADDRS" | wc -l) $$addr; \
+		if forge verify-contract $$addr src/Minimal.sol:Minimal \
+			--chain-id 8453 \
+			--etherscan-api-key $${ETHERSCAN_API_KEY} >/dev/null 2>&1; then \
+			echo "OK"; \
+		else \
+			echo "FAILED"; \
+			FAILED=$$((FAILED + 1)); \
+		fi; \
+	done; \
+	echo ""; \
+	echo "Verified $$COUNT contracts, $$FAILED failed."; \
+	exit $$FAILED
