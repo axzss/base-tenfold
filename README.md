@@ -51,13 +51,20 @@ pass `--verifier sourcify` to use the open-source verifier.
 
 ```bash
 anvil --port 8545 &
-PRIVATE_KEY=0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80 \
-  forge script script/Deploy.s.sol:DeployScript \
-    --rpc-url http://localhost:8545 --broadcast
 ```
 
-The `0xac0974bec...` key is anvil's well-known dev key, pre-funded with
-10k ETH. Fine on your laptop. Not on a real network.
+Anvil prints a list of pre-funded dev private keys when it starts. Copy
+the first one into your shell and use it for the deploy:
+
+```bash
+forge script script/Deploy.s.sol:DeployScript \
+  --rpc-url http://localhost:8545 \
+  --private-key $YOUR_ANVIL_KEY \
+  --broadcast
+```
+
+Those keys are well-known, deterministic, and only valid on a local
+anvil node. Do not paste them anywhere that talks to a real network.
 
 ## Security
 
