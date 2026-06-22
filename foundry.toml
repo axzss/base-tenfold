@@ -21,9 +21,14 @@ via_ir          = true         # Pipeline optimizer: smaller bytecode, fewer
 # Free plan covers Base Sepolia (chain 84532). Base mainnet (8453) on
 # the free tier may return "Free API access is not supported for this
 # chain" — upgrade API plan or use `--verifier sourcify` as fallback.
+#
+# Note: `chainid` is baked into the URL because forge 1.7.x does not
+# auto-append the V2 `chainid` query param from the `chain` field.
+# Confirmed by curl: V2 endpoint requires `?chainid=...` to be in the
+# request URL. Leaving it implicit gives "Missing chainid parameter".
 [etherscan]
-base         = {key = "${ETHERSCAN_API_KEY}", chain = 8453,  url = "https://api.etherscan.io/v2/api"}
-base_sepolia = {key = "${ETHERSCAN_API_KEY}", chain = 84532, url = "https://api.etherscan.io/v2/api"}
+base         = {key = "${ETHERSCAN_API_KEY}", chain = 8453,  url = "https://api.etherscan.io/v2/api?chainid=8453"}
+base_sepolia = {key = "${ETHERSCAN_API_KEY}", chain = 84532, url = "https://api.etherscan.io/v2/api?chainid=84532"}
 
 # Keep the RPC URLs out of git. Pull them from `.env` at run time.
 [rpc_endpoints]
