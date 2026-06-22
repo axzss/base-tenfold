@@ -71,8 +71,8 @@ in `.gitignore` (it is), it never touches git. The rest is on you:
 
 ## Layout
 
-- `src/Minimal.sol` — the contract (single `uint256` slot)
-- `script/Deploy.s.sol` — the 10-deploy script
-- `foundry.toml` — optimizer + Etherscan V2 verifier
-- `Makefile` — `make help` lists everything
-- `.env.example` — secrets template
+- `src/Minimal.sol`: the contract (single `uint256` slot)
+- `script/Deploy.s.sol`: the 10-deploy script
+- `foundry.toml`: optimizer + Etherscan V2 verifier
+- `Makefile`: `make help` lists everything
+- `.env.example`: secrets template
