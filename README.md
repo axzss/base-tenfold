@@ -154,9 +154,6 @@ Run `make help` for the complete list.
 ├── remappings.txt      # forge-std path for IDEs
 ├── Makefile            # Common dev tasks
 ├── .env.example        # Environment template
-├── .gitignore          # Build artifacts, secrets, editor files
-├── .gitattributes      # Line endings + linguist settings
-├── .editorconfig       # Cross-editor formatting
 ├── LICENSE             # MIT
 ├── src/Minimal.sol     # Single-slot gas-optimized contract
 ├── script/Deploy.s.sol # 10-deploy script in a single broadcast
