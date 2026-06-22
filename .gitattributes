@@ -1,0 +1,32 @@
+# ============================================================
+#  Line endings
+# ============================================================
+# Normalize text files to LF. Solidity tooling (forge, slither, mythril)
+# expects LF — CRLF will sometimes trip up build artefacts in `out/`.
+*          text=auto eol=lf
+
+# Mark binary blobs explicitly.
+*.png      binary
+*.jpg      binary
+*.jpeg     binary
+*.gif      binary
+*.ico      binary
+*.mov      binary
+*.mp4      binary
+*.mp3      binary
+*.wav      binary
+*.pdf      binary
+*.zip      binary
+*.gz       binary
+*.tar      binary
+*.7z       binary
+
+# ============================================================
+#  Linguist — language detection & repo stats
+# ============================================================
+# Count Solidity as a real language (not auto-generated).
+*.sol linguist-language=Solidity
+*.sol linguist-generated=false
+
+# Treat NatSpec / markdown helpers as Markdown.
+*.md  linguist-detectable=true

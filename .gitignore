@@ -1,0 +1,62 @@
+# ============================================================
+#  Foundry — build artifacts
+# ============================================================
+# Compiled artifacts. Regenerate with `forge build`.
+out/
+
+# Compilation cache. Regenerate with `forge build`.
+cache/
+
+# Deployment artifacts (run-latest.json, run-<timestamp>.json, ...).
+# Safe to commit, but typically you don't — you push them to a separate
+# deployment registry or your CI logs.
+broadcast/
+
+# Coverage reports (forge coverage).
+coverage/
+lcov.info
+
+# ============================================================
+#  Foundry — dependencies
+# ============================================================
+# `lib/` is the install location for `forge install`. Each package is
+# pinned via a git submodule reference in `.gitmodules`, so the contents
+# are NOT tracked. Keep the folder git-ignored.
+lib/
+
+# ============================================================
+#  Secrets — DO NOT COMMIT
+# ============================================================
+.env
+.env.*
+.env.local
+.env.production
+.env.staging
+.envrc
+!.env.example
+
+# ============================================================
+#  Editor / IDE
+# ============================================================
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.cache/
+.DS_Store
+Thumbs.db
+Desktop.ini
+
+# ============================================================
+#  Node tooling (if you add hardhat plugins, etc.)
+# ============================================================
+node_modules/
+package-lock.json
+
+# ============================================================
+#  Misc
+# ============================================================
+*.log
+*.tmp
+*.bak

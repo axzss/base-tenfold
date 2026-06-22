@@ -1,0 +1,33 @@
+[profile.default]
+src             = "src"
+out             = "out"
+libs            = ["lib"]
+script          = "script"
+solc            = "0.8.24"
+evm_version     = "cancun"
+optimizer       = true
+optimizer_runs  = 1_000_000   # High runs -> minimum runtime gas at the cost of
+                              # slightly higher deployment bytecode. For a
+                              # production contract called many times this is
+                              # the right trade-off.
+via_ir          = true         # Pipeline optimizer: smaller bytecode, fewer
+                              # JUMPs, fewer stack spills.
+
+# Auto-verify on Basescan. The verifier URL differs per Base network
+# (mainnet vs Sepolia). Set BASESCAN_API_KEY in `.env`.
+[etherscan]
+base     = {key = "${BASESCAN_API_KEY}", chain = 8453, url = "https://api.basescan.org/api"}
+base_sepolia = {key = "${BASESCAN_API_KEY}", chain = 84532, url = "https://api-sepolia.basescan.org/api"}
+
+# Keep the RPC URLs out of git. Pull them from `.env` at run time.
+[rpc_endpoints]
+base          = "${BASE_RPC_URL}"
+base_sepolia  = "${BASE_SEPOLIA_RPC_URL}"
+
+[fmt]
+line_length = 100
+tab_width   = 4
+bracket_spacing = false
+int_types   = "long"
+multiline_func_header = "params_per_line"
+quote_style = "double"
