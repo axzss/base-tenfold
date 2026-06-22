@@ -11,6 +11,25 @@
 -include .env
 export
 
+# ------------------------------------------------------------
+#  Backward-compat: BASESCAN_API_KEY -> ETHERSCAN_API_KEY
+# ------------------------------------------------------------
+#  As of 2025-09 the Etherscan V1 endpoints (basescan.org/api,
+#  api.etherscan.io/api) are deprecated. The V2 unified endpoint
+#  uses the ETHERSCAN_API_KEY env var (one key for all Etherscan-
+#  family chains).
+#
+#  If the user has only the old BASESCAN_API_KEY set in .env, alias
+#  it to ETHERSCAN_API_KEY so forge sees the V2 var. New setups
+#  should use ETHERSCAN_API_KEY directly.
+# ------------------------------------------------------------
+ifdef BASESCAN_API_KEY
+ifndef ETHERSCAN_API_KEY
+export ETHERSCAN_API_KEY = $(BASESCAN_API_KEY)
+$(warning BASESCAN_API_KEY is deprecated, rename to ETHERSCAN_API_KEY in .env)
+endif
+endif
+
 # ---- Forge version pin (uncomment to enforce) ----
 # FOUNDRY_VERSION = nightly
 
