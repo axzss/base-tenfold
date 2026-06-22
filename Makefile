@@ -35,7 +35,7 @@ endif
 
 .PHONY: help install build build-optimized test test-gas fmt fmt-check snapshot clean \
         deploy-sepolia deploy-mainnet verify-sepolia verify-mainnet \
-        reverify-sepolia reverify-mainnet
+        reverify-sepolia reverify-mainnet verify migrate-env
 
 help: ## show this help
 	@awk 'BEGIN {FS = ":.*##"; printf "\nUsage:\n  make \033[36m<target>\033[0m\n\nTargets:\n"} \
@@ -129,6 +129,78 @@ verify-mainnet: ## verify an existing deployment on Base mainnet
 	forge verify-contract $(ADDR) src/Minimal.sol:Minimal \
 		--chain-id 8453 \
 		--etherscan-api-key $${ETHERSCAN_API_KEY}
+
+# ------------------------------------------------------------
+#  migrate-env — one-shot .env migration
+# ------------------------------------------------------------
+#  Renames BASESCAN_API_KEY to ETHERSCAN_API_KEY in your .env.
+#  Value (the actual key) is preserved. All other lines untouched.
+#  Safe to run multiple times (idempotent).
+# ------------------------------------------------------------
+migrate-env: ## rename BASESCAN_API_KEY to ETHERSCAN_API_KEY in .env (preserves key value)
+	@if [ ! -f .env ]; then \
+		echo "No .env found. Run: cp .env.example .env" >&2; \
+		exit 1; \
+	fi; \
+	if grep -q '^BASESCAN_API_KEY=' .env; then \
+		sed -i 's/^BASESCAN_API_KEY=/ETHERSCAN_API_KEY=/' .env; \
+		echo "Migrated: BASESCAN_API_KEY -> ETHERSCAN_API_KEY (key value preserved)"; \
+		echo "--- .env diff (BASESCAN_API_KEY / ETHERSCAN_API_KEY lines only) ---"; \
+		grep -E '^(BASESCAN_API_KEY|ETHERSCAN_API_KEY)=' .env || true; \
+	else \
+		echo "Nothing to migrate. Either already ETHERSCAN_API_KEY, or no key set."; \
+	fi
+
+# ------------------------------------------------------------
+#  verify — simplest possible verification
+# ------------------------------------------------------------
+#  No args, no flags. Finds the most recent broadcast file, figures
+#  out the chain from the directory name (84532 or 8453), and
+#  verifies every deployed contract. Use this if you don't want
+#  to think about which network.
+#
+#  Override the broadcast file with BROADCAST=path/to/file.json
+# ------------------------------------------------------------
+verify: ## auto-detect: verify all contracts from the most recent broadcast
+	@if [ ! -d broadcast/Deploy.s.sol ]; then \
+		echo "No broadcast/ directory. Run 'make deploy-sepolia' (or mainnet) first." >&2; \
+		exit 1; \
+	fi; \
+	if [ -n "$(BROADCAST)" ]; then \
+		LATEST=$(BROADCAST); \
+	else \
+		LATEST=$$(ls -1t broadcast/Deploy.s.sol/*/run-*.json 2>/dev/null | head -1); \
+		if [ -z "$$LATEST" ]; then \
+			echo "No broadcast file found. Run a deploy first." >&2; \
+			exit 1; \
+		fi; \
+	fi; \
+	CHAIN=$$(dirname "$$LATEST" | xargs basename); \
+	echo "File:   $$LATEST"; \
+	echo "Chain:  $$CHAIN"; \
+	echo "---"; \
+	ADDRS=$$(python3 -c "import json; d=json.load(open('$$LATEST')); [print(t.get('contractAddress','')) for t in d.get('transactions',[]) if t.get('contractAddress')]"); \
+	if [ -z "$$ADDRS" ]; then \
+		echo "No contracts in $$LATEST" >&2; \
+		exit 1; \
+	fi; \
+	TOTAL=$$(echo "$$ADDRS" | wc -l); \
+	OK=0; FAIL=0; \
+	for addr in $$ADDRS; do \
+		OK=$$((OK + 1)); \
+		printf "[%2d/%2d] %s ... " $$OK $$TOTAL $$addr; \
+		if forge verify-contract $$addr src/Minimal.sol:Minimal \
+			--chain-id $$CHAIN \
+			--etherscan-api-key $${ETHERSCAN_API_KEY} >/dev/null 2>&1; then \
+			echo "OK"; \
+		else \
+			echo "FAIL"; \
+			FAIL=$$((FAIL + 1)); \
+		fi; \
+	done; \
+	echo "---"; \
+	echo "Done. Verified $$TOTAL contracts, $$FAIL failed."; \
+	exit $$FAIL
 
 # ------------------------------------------------------------
 #  Re-verify all contracts in a broadcast file
